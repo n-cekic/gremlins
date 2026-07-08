@@ -8,6 +8,12 @@ import (
 	"github.com/bluekeyes/go-gitdiff/gitdiff"
 )
 
+const (
+	svcAPref = "service-a"
+	svcAFile = svcAPref + "/main.go"
+	flatFile = "main.go"
+)
+
 func TestDiff_IsChanged(t *testing.T) {
 	tests := []struct {
 		name string
@@ -61,22 +67,22 @@ func TestDiff_IsChanged(t *testing.T) {
 			name: "monorepo single service: prepend moduleRel",
 			d: Diff{
 				changes: map[FileName][]Change{
-					"service-a/main.go": {{StartLine: 10, EndLine: 20}},
+					svcAFile: {{StartLine: 10, EndLine: 20}},
 				},
-				moduleRel: "service-a",
+				moduleRel: svcAPref,
 			},
-			pos:  token.Position{Filename: "main.go", Line: 15},
+			pos:  token.Position{Filename: flatFile, Line: 15},
 			want: true,
 		},
 		{
 			name: "monorepo single service: no match outside range",
 			d: Diff{
 				changes: map[FileName][]Change{
-					"service-a/main.go": {{StartLine: 10, EndLine: 20}},
+					svcAFile: {{StartLine: 10, EndLine: 20}},
 				},
-				moduleRel: "service-a",
+				moduleRel: svcAPref,
 			},
-			pos:  token.Position{Filename: "main.go", Line: 25},
+			pos:  token.Position{Filename: flatFile, Line: 25},
 			want: false,
 		},
 		{
@@ -85,56 +91,56 @@ func TestDiff_IsChanged(t *testing.T) {
 				changes: map[FileName][]Change{
 					"service-a/cmd/main.go": {{StartLine: 10, EndLine: 20}},
 				},
-				moduleRel:  "service-a",
+				moduleRel:  svcAPref,
 				callingDir: "cmd",
 			},
-			pos:  token.Position{Filename: "main.go", Line: 15},
+			pos:  token.Position{Filename: flatFile, Line: 15},
 			want: true,
 		},
 		{
 			name: "monorepo multiple services: no collision",
 			d: Diff{
 				changes: map[FileName][]Change{
-					"service-a/main.go": {{StartLine: 10, EndLine: 20}},
+					svcAFile:            {{StartLine: 10, EndLine: 20}},
 					"service-b/main.go": {{StartLine: 30, EndLine: 40}},
 				},
-				moduleRel: "service-a",
+				moduleRel: svcAPref,
 			},
-			pos:  token.Position{Filename: "main.go", Line: 15},
+			pos:  token.Position{Filename: flatFile, Line: 15},
 			want: true,
 		},
 		{
 			name: "monorepo multiple services: other service not matched",
 			d: Diff{
 				changes: map[FileName][]Change{
-					"service-a/main.go": {{StartLine: 10, EndLine: 20}},
+					svcAFile:            {{StartLine: 10, EndLine: 20}},
 					"service-b/main.go": {{StartLine: 30, EndLine: 40}},
 				},
 				moduleRel: "service-b",
 			},
-			pos:  token.Position{Filename: "main.go", Line: 15},
+			pos:  token.Position{Filename: flatFile, Line: 15},
 			want: false,
 		},
 		{
 			name: "flat repo (moduleRel='.'): resolves to same key",
 			d: Diff{
 				changes: map[FileName][]Change{
-					"main.go": {{StartLine: 10, EndLine: 20}},
+					flatFile: {{StartLine: 10, EndLine: 20}},
 				},
 				moduleRel: ".",
 			},
-			pos:  token.Position{Filename: "main.go", Line: 15},
+			pos:  token.Position{Filename: flatFile, Line: 15},
 			want: true,
 		},
 		{
 			name: "empty callingDir is not prepended",
 			d: Diff{
 				changes: map[FileName][]Change{
-					"service-a/main.go": {{StartLine: 10, EndLine: 20}},
+					svcAFile: {{StartLine: 10, EndLine: 20}},
 				},
-				moduleRel: "service-a",
+				moduleRel: svcAPref,
 			},
-			pos:  token.Position{Filename: "main.go", Line: 15},
+			pos:  token.Position{Filename: flatFile, Line: 15},
 			want: true,
 		},
 	}
@@ -196,10 +202,10 @@ func Test_newDiff_withModuleRel(t *testing.T) {
 			"service-a/test1": {{StartLine: 25, EndLine: 25}},
 			"service-b/test2": {{StartLine: 25, EndLine: 25}},
 		},
-		moduleRel: "service-a",
+		moduleRel: svcAPref,
 	}
 
-	result := newDiff(files, "service-a", "")
+	result := newDiff(files, svcAPref, "")
 	if !reflect.DeepEqual(result, expected) {
 		t.Log("want", expected)
 		t.Log("got", result)
@@ -256,10 +262,10 @@ func TestFromChanges(t *testing.T) {
 
 func TestDiffWithModuleRel(t *testing.T) {
 	d := FromChanges(map[FileName][]Change{
-		"service-a/main.go": {{StartLine: 10, EndLine: 20}},
-	}).WithModuleRel("service-a")
+		svcAFile: {{StartLine: 10, EndLine: 20}},
+	}).WithModuleRel(svcAPref)
 
-	pos := token.Position{Filename: "main.go", Line: 15}
+	pos := token.Position{Filename: flatFile, Line: 15}
 	if !d.IsChanged(pos) {
 		t.Error("expected IsChanged to match with moduleRel prepended")
 	}
@@ -273,9 +279,9 @@ func TestDiffWithModuleRel(t *testing.T) {
 func TestDiffWithCallingDir(t *testing.T) {
 	d := FromChanges(map[FileName][]Change{
 		"service-a/cmd/main.go": {{StartLine: 10, EndLine: 20}},
-	}).WithModuleRel("service-a").WithCallingDir("cmd")
+	}).WithModuleRel(svcAPref).WithCallingDir("cmd")
 
-	pos := token.Position{Filename: "main.go", Line: 15}
+	pos := token.Position{Filename: flatFile, Line: 15}
 	if !d.IsChanged(pos) {
 		t.Error("expected IsChanged to match with moduleRel and callingDir prepended")
 	}
