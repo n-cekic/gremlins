@@ -39,16 +39,20 @@ func FromChanges(changes map[FileName][]Change) Diff {
 
 // WithModuleRel sets the module relative path (from git root to module root).
 func (d Diff) WithModuleRel(rel string) Diff {
-	d.moduleRel = rel
-
-	return d
+	return Diff{
+		changes:    d.changes,
+		moduleRel:  rel,
+		callingDir: d.callingDir,
+	}
 }
 
 // WithCallingDir sets the calling directory (from module root to CWD).
 func (d Diff) WithCallingDir(dir string) Diff {
-	d.callingDir = dir
-
-	return d
+	return Diff{
+		changes:    d.changes,
+		moduleRel:  d.moduleRel,
+		callingDir: dir,
+	}
 }
 
 func newDiff(files []*gitdiff.File, moduleRel, callingDir string) Diff {
