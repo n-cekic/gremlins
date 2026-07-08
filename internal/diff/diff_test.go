@@ -16,40 +16,126 @@ func TestDiff_IsChanged(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "must be changed on nil Diff",
-			d:    nil,
+			name: "must be changed on zero Diff",
+			d:    Diff{},
 			pos:  token.Position{},
 			want: true,
 		},
 		{
 			name: "must be changed on empty Diff",
-			d:    map[FileName][]Change{},
+			d:    Diff{changes: map[FileName][]Change{}},
 			pos:  token.Position{},
 			want: true,
 		},
 		{
 			name: "must be changed if in range",
-			d: map[FileName][]Change{
-				"test": {{StartLine: 21, EndLine: 21}},
+			d: Diff{
+				changes: map[FileName][]Change{
+					"test": {{StartLine: 21, EndLine: 21}},
+				},
 			},
 			pos:  token.Position{Filename: "test", Line: 21},
 			want: true,
 		},
 		{
 			name: "must be unchanged if outside range",
-			d: map[FileName][]Change{
-				"test": {{StartLine: 21, EndLine: 21}},
+			d: Diff{
+				changes: map[FileName][]Change{
+					"test": {{StartLine: 21, EndLine: 21}},
+				},
 			},
 			pos:  token.Position{Filename: "test", Line: 22},
 			want: false,
 		},
 		{
 			name: "must be unchanged if no such file",
-			d: map[FileName][]Change{
-				"test": {{StartLine: 21, EndLine: 21}},
+			d: Diff{
+				changes: map[FileName][]Change{
+					"test": {{StartLine: 21, EndLine: 21}},
+				},
 			},
 			pos:  token.Position{Filename: "test1", Line: 21},
 			want: false,
+		},
+		{
+			name: "monorepo single service: prepend moduleRel",
+			d: Diff{
+				changes: map[FileName][]Change{
+					"service-a/main.go": {{StartLine: 10, EndLine: 20}},
+				},
+				moduleRel: "service-a",
+			},
+			pos:  token.Position{Filename: "main.go", Line: 15},
+			want: true,
+		},
+		{
+			name: "monorepo single service: no match outside range",
+			d: Diff{
+				changes: map[FileName][]Change{
+					"service-a/main.go": {{StartLine: 10, EndLine: 20}},
+				},
+				moduleRel: "service-a",
+			},
+			pos:  token.Position{Filename: "main.go", Line: 25},
+			want: false,
+		},
+		{
+			name: "monorepo subdirectory: prepend moduleRel and callingDir",
+			d: Diff{
+				changes: map[FileName][]Change{
+					"service-a/cmd/main.go": {{StartLine: 10, EndLine: 20}},
+				},
+				moduleRel:  "service-a",
+				callingDir: "cmd",
+			},
+			pos:  token.Position{Filename: "main.go", Line: 15},
+			want: true,
+		},
+		{
+			name: "monorepo multiple services: no collision",
+			d: Diff{
+				changes: map[FileName][]Change{
+					"service-a/main.go": {{StartLine: 10, EndLine: 20}},
+					"service-b/main.go": {{StartLine: 30, EndLine: 40}},
+				},
+				moduleRel: "service-a",
+			},
+			pos:  token.Position{Filename: "main.go", Line: 15},
+			want: true,
+		},
+		{
+			name: "monorepo multiple services: other service not matched",
+			d: Diff{
+				changes: map[FileName][]Change{
+					"service-a/main.go": {{StartLine: 10, EndLine: 20}},
+					"service-b/main.go": {{StartLine: 30, EndLine: 40}},
+				},
+				moduleRel: "service-b",
+			},
+			pos:  token.Position{Filename: "main.go", Line: 15},
+			want: false,
+		},
+		{
+			name: "flat repo (moduleRel='.'): resolves to same key",
+			d: Diff{
+				changes: map[FileName][]Change{
+					"main.go": {{StartLine: 10, EndLine: 20}},
+				},
+				moduleRel: ".",
+			},
+			pos:  token.Position{Filename: "main.go", Line: 15},
+			want: true,
+		},
+		{
+			name: "empty callingDir is not prepended",
+			d: Diff{
+				changes: map[FileName][]Change{
+					"service-a/main.go": {{StartLine: 10, EndLine: 20}},
+				},
+				moduleRel: "service-a",
+			},
+			pos:  token.Position{Filename: "main.go", Line: 15},
+			want: true,
 		},
 	}
 	for _, tt := range tests {
@@ -77,11 +163,43 @@ func Test_newDiff(t *testing.T) {
 	}
 
 	expected := Diff{
-		"test1": {{StartLine: 25, EndLine: 25}},
-		"test2": {{StartLine: 25, EndLine: 25}},
+		changes: map[FileName][]Change{
+			"test1": {{StartLine: 25, EndLine: 25}},
+			"test2": {{StartLine: 25, EndLine: 25}},
+		},
 	}
 
-	result := newDiff(files)
+	result := newDiff(files, "", "")
+	if !reflect.DeepEqual(result, expected) {
+		t.Log("want", expected)
+		t.Log("got", result)
+		t.Fatalf("unexpected newDiff result")
+	}
+}
+
+func Test_newDiff_withModuleRel(t *testing.T) {
+	fragments := []*gitdiff.TextFragment{fragment(21, 1)}
+
+	files := []*gitdiff.File{
+		{
+			NewName:       "service-a/test1",
+			TextFragments: fragments,
+		},
+		{
+			NewName:       "service-b/test2",
+			TextFragments: fragments,
+		},
+	}
+
+	expected := Diff{
+		changes: map[FileName][]Change{
+			"service-a/test1": {{StartLine: 25, EndLine: 25}},
+			"service-b/test2": {{StartLine: 25, EndLine: 25}},
+		},
+		moduleRel: "service-a",
+	}
+
+	result := newDiff(files, "service-a", "")
 	if !reflect.DeepEqual(result, expected) {
 		t.Log("want", expected)
 		t.Log("got", result)
@@ -118,6 +236,48 @@ func Test_newChanges(t *testing.T) {
 		t.Log("want", expect)
 		t.Log("got", changes)
 		t.Fatalf("unexpected newChanges result")
+	}
+}
+
+func TestFromChanges(t *testing.T) {
+	d := FromChanges(map[FileName][]Change{
+		"file.go": {{StartLine: 1, EndLine: 5}},
+	})
+	if d.changes == nil {
+		t.Fatal("changes should not be nil")
+	}
+	if len(d.changes) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(d.changes))
+	}
+	if d.moduleRel != "" || d.callingDir != "" {
+		t.Fatal("moduleRel and callingDir should be empty")
+	}
+}
+
+func TestDiffWithModuleRel(t *testing.T) {
+	d := FromChanges(map[FileName][]Change{
+		"service-a/main.go": {{StartLine: 10, EndLine: 20}},
+	}).WithModuleRel("service-a")
+
+	pos := token.Position{Filename: "main.go", Line: 15}
+	if !d.IsChanged(pos) {
+		t.Error("expected IsChanged to match with moduleRel prepended")
+	}
+
+	pos2 := token.Position{Filename: "other.go", Line: 15}
+	if d.IsChanged(pos2) {
+		t.Error("expected IsChanged to not match unrelated file")
+	}
+}
+
+func TestDiffWithCallingDir(t *testing.T) {
+	d := FromChanges(map[FileName][]Change{
+		"service-a/cmd/main.go": {{StartLine: 10, EndLine: 20}},
+	}).WithModuleRel("service-a").WithCallingDir("cmd")
+
+	pos := token.Position{Filename: "main.go", Line: 15}
+	if !d.IsChanged(pos) {
+		t.Error("expected IsChanged to match with moduleRel and callingDir prepended")
 	}
 }
 
