@@ -12,170 +12,166 @@ import (
 	"github.com/go-gremlins/gremlins/internal/configuration"
 )
 
-func TestNewWithCmd(t *testing.T) {
-	t.Run("must return zero Diff on empty flag", func(t *testing.T) {
-		m := &mock{}
+func TestNewWithCmd_EmptyDiffRef(t *testing.T) {
+	m := &mock{}
 
-		d, err := NewWithCmd(m.call, "/repo", "")
+	d, err := NewWithCmd(m.call, "/repo", "")
 
-		if !reflect.DeepEqual(d, Diff{}) || err != nil {
-			t.Fatal("incorrect result")
-		}
-	})
+	if !reflect.DeepEqual(d, Diff{}) || err != nil {
+		t.Fatal("incorrect result")
+	}
+}
 
-	t.Run("must return error on git rev-parse failure", func(t *testing.T) {
-		viper.Set(configuration.UnleashDiffRef, "main")
-
-		m := &mock{
-			responses: []mockResponse{
-				{err: errors.New("not a git repo")},
-			},
-		}
-
-		_, err := NewWithCmd(m.call, "/repo", "")
-		if err == nil {
-			t.Error("must return error")
-		}
-	})
-
-	t.Run("must return error on git diff failure", func(t *testing.T) {
-		viper.Set(configuration.UnleashDiffRef, "test")
-
-		m := &mock{
+func TestNewWithCmd_Errors(t *testing.T) {
+	tests := []struct {
+		name      string
+		responses []mockResponse
+		wantCalls int
+		wantArgs  []string
+	}{
+		{
+			name:      "git rev-parse failure",
+			responses: []mockResponse{{err: errors.New("not a git repo")}},
+		},
+		{
+			name: "git diff failure",
 			responses: []mockResponse{
 				{output: []byte("/repo\n")},
 				{err: errors.New("test")},
 			},
-		}
-
-		_, err := NewWithCmd(m.call, "/repo", "")
-		if err == nil {
-			t.Error("must return error")
-		}
-
-		if len(m.calls) != 2 {
-			t.Fatal("expected 2 cmd calls")
-		}
-
-		expectedArgs := []string{"diff", "--merge-base", "test"}
-
-		if m.calls[1].name != "git" || !reflect.DeepEqual(m.calls[1].args, expectedArgs) {
-			t.Log("name", m.calls[1].name)
-			t.Log("args", m.calls[1].args)
-			t.Error("cmd not called properly")
-		}
-	})
-
-	t.Run("must return diff error", func(t *testing.T) {
-		viper.Set(configuration.UnleashDiffRef, "test")
-
-		m := &mock{
+			wantCalls: 2,
+			wantArgs:  []string{"diff", "--merge-base", "test"},
+		},
+		{
+			name: "diff parse error",
 			responses: []mockResponse{
 				{output: []byte("/repo\n")},
 				{output: []byte(testErrDiff)},
 			},
-		}
+		},
+	}
 
-		_, err := NewWithCmd(m.call, "/repo", "")
-		if err == nil {
-			t.Error("must return error")
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			viper.Set(configuration.UnleashDiffRef, "test")
+			defer viper.Reset()
 
-	t.Run("must return changes", func(t *testing.T) {
-		viper.Set(configuration.UnleashDiffRef, "test")
+			m := &mock{responses: tt.responses}
 
-		m := &mock{
-			responses: []mockResponse{
-				{output: []byte("/repo\n")},
-				{output: []byte(testDiff)},
-			},
-		}
+			_, err := NewWithCmd(m.call, "/repo", "")
+			if err == nil {
+				t.Error("must return error")
+			}
 
-		expected := Diff{
-			changes: map[FileName][]Change{
-				"test/test": {{StartLine: 44, EndLine: 44}},
-			},
-			moduleRel: ".",
-		}
+			if tt.wantCalls > 0 && len(m.calls) != tt.wantCalls {
+				t.Fatalf("expected %d cmd calls, got %d", tt.wantCalls, len(m.calls))
+			}
 
-		result, err := NewWithCmd(m.call, "/repo", "")
+			if tt.wantArgs != nil {
+				if m.calls[1].name != "git" || !reflect.DeepEqual(m.calls[1].args, tt.wantArgs) {
+					t.Errorf("cmd not called properly: name=%s args=%v", m.calls[1].name, m.calls[1].args)
+				}
+			}
+		})
+	}
+}
 
-		if err != nil || !reflect.DeepEqual(result, expected) {
-			t.Log("err", err)
-			t.Log("result", result)
-			t.Error("unexpected result")
-		}
-	})
+func TestNewWithCmd_FlatRepo(t *testing.T) {
+	viper.Set(configuration.UnleashDiffRef, "test")
+	defer viper.Reset()
 
-	t.Run("monorepo: moduleRel computed from git root", func(t *testing.T) {
-		viper.Set(configuration.UnleashDiffRef, "main")
+	m := &mock{
+		responses: []mockResponse{
+			{output: []byte("/repo\n")},
+			{output: []byte(testDiff)},
+		},
+	}
 
-		m := &mock{
-			responses: []mockResponse{
-				{output: []byte("/home/user/repo\n")},
-				{output: []byte(testMonorepoDiff)},
-			},
-		}
+	expected := Diff{
+		changes: map[FileName][]Change{
+			"test/test": {{StartLine: 44, EndLine: 44}},
+		},
+		moduleRel: ".",
+	}
 
-		expected := Diff{
-			changes: map[FileName][]Change{
-				"service-a/main.go": {{StartLine: 44, EndLine: 44}},
-			},
-			moduleRel: "service-a",
-		}
+	result, err := NewWithCmd(m.call, "/repo", "")
 
-		result, err := NewWithCmd(m.call, "/home/user/repo/service-a", "")
+	if err != nil || !reflect.DeepEqual(result, expected) {
+		t.Log("err", err)
+		t.Log("result", result)
+		t.Error("unexpected result")
+	}
+}
 
-		if err != nil || !reflect.DeepEqual(result, expected) {
-			t.Log("err", err)
-			t.Log("result", result)
-			t.Error("unexpected result")
-		}
-	})
+func TestNewWithCmd_Monorepo(t *testing.T) {
+	viper.Set(configuration.UnleashDiffRef, "main")
+	defer viper.Reset()
 
-	t.Run("monorepo: relative moduleRoot is resolved to absolute before computing moduleRel", func(t *testing.T) {
-		viper.Set(configuration.UnleashDiffRef, "main")
+	m := &mock{
+		responses: []mockResponse{
+			{output: []byte("/home/user/repo\n")},
+			{output: []byte(testMonorepoDiff)},
+		},
+	}
 
-		wd, err := os.Getwd()
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = os.Chdir(wd) }()
+	expected := Diff{
+		changes: map[FileName][]Change{
+			"service-a/main.go": {{StartLine: 44, EndLine: 44}},
+		},
+		moduleRel: "service-a",
+	}
 
-		repoRoot, err := filepath.EvalSymlinks(t.TempDir())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.MkdirAll(filepath.Join(repoRoot, "service-a"), 0o750); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chdir(repoRoot); err != nil {
-			t.Fatal(err)
-		}
+	result, err := NewWithCmd(m.call, "/home/user/repo/service-a", "")
 
-		m := &mock{
-			responses: []mockResponse{
-				{output: []byte(repoRoot + "\n")},
-				{output: []byte(testMonorepoDiff)},
-			},
-		}
+	if err != nil || !reflect.DeepEqual(result, expected) {
+		t.Log("err", err)
+		t.Log("result", result)
+		t.Error("unexpected result")
+	}
+}
 
-		expected := Diff{
-			changes: map[FileName][]Change{
-				"service-a/main.go": {{StartLine: 44, EndLine: 44}},
-			},
-			moduleRel: "service-a",
-		}
+func TestNewWithCmd_RelativeModuleRoot(t *testing.T) {
+	viper.Set(configuration.UnleashDiffRef, "main")
+	defer viper.Reset()
 
-		result, err := NewWithCmd(m.call, "service-a", "")
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(wd) }()
 
-		if err != nil || !reflect.DeepEqual(result, expected) {
-			t.Log("err", err)
-			t.Log("result", result)
-			t.Error("unexpected result")
-		}
-	})
+	repoRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoRoot, "service-a"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(repoRoot); err != nil {
+		t.Fatal(err)
+	}
+
+	m := &mock{
+		responses: []mockResponse{
+			{output: []byte(repoRoot + "\n")},
+			{output: []byte(testMonorepoDiff)},
+		},
+	}
+
+	expected := Diff{
+		changes: map[FileName][]Change{
+			"service-a/main.go": {{StartLine: 44, EndLine: 44}},
+		},
+		moduleRel: "service-a",
+	}
+
+	result, err := NewWithCmd(m.call, "service-a", "")
+
+	if err != nil || !reflect.DeepEqual(result, expected) {
+		t.Log("err", err)
+		t.Log("result", result)
+		t.Error("unexpected result")
+	}
 }
 
 type mockResponse struct {
