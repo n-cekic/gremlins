@@ -34,12 +34,21 @@ func NewWithCmd[T execCmd](cmdContext func(name string, args ...string) T, modul
 
 	log.Infoln("Gathering files diff...")
 
+	absModuleRoot, err := filepath.Abs(moduleRoot)
+	if err != nil {
+		return Diff{}, fmt.Errorf("failed to resolve module root: %w", err)
+	}
+
 	gitRootOut, err := cmdContext("git", "rev-parse", "--show-toplevel").CombinedOutput()
 	if err != nil {
 		return Diff{}, fmt.Errorf("failed to determine git root: %w", err)
 	}
 	gitRoot := strings.TrimSpace(string(gitRootOut))
-	moduleRel, _ := filepath.Rel(gitRoot, moduleRoot)
+
+	moduleRel, err := filepath.Rel(gitRoot, absModuleRoot)
+	if err != nil {
+		return Diff{}, fmt.Errorf("failed to determine module path relative to git root: %w", err)
+	}
 
 	cmd := cmdContext("git", "diff", "--merge-base", diffRef)
 

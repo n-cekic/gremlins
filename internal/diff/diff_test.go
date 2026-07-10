@@ -143,6 +143,29 @@ func TestDiff_IsChanged(t *testing.T) {
 			pos:  token.Position{Filename: flatFile, Line: 15},
 			want: true,
 		},
+		{
+			name: "windows-style separators in moduleRel/callingDir still match forward-slash diff keys",
+			d: Diff{
+				changes: map[FileName][]Change{
+					"service-a/cmd/main.go": {{StartLine: 10, EndLine: 20}},
+				},
+				moduleRel:  `service-a`,
+				callingDir: `cmd`,
+			},
+			pos:  token.Position{Filename: flatFile, Line: 15},
+			want: true,
+		},
+		{
+			name: "backslash-joined moduleRel from filepath.Rel on Windows still matches",
+			d: Diff{
+				changes: map[FileName][]Change{
+					"service-a/cmd/main.go": {{StartLine: 10, EndLine: 20}},
+				},
+				moduleRel: `service-a\cmd`,
+			},
+			pos:  token.Position{Filename: flatFile, Line: 15},
+			want: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

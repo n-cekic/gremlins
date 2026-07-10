@@ -2,6 +2,8 @@ package diff
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -124,6 +126,49 @@ func TestNewWithCmd(t *testing.T) {
 		}
 
 		result, err := NewWithCmd(m.call, "/home/user/repo/service-a", "")
+
+		if err != nil || !reflect.DeepEqual(result, expected) {
+			t.Log("err", err)
+			t.Log("result", result)
+			t.Error("unexpected result")
+		}
+	})
+
+	t.Run("monorepo: relative moduleRoot is resolved to absolute before computing moduleRel", func(t *testing.T) {
+		viper.Set(configuration.UnleashDiffRef, "main")
+
+		wd, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = os.Chdir(wd) }()
+
+		repoRoot, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(repoRoot, "service-a"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chdir(repoRoot); err != nil {
+			t.Fatal(err)
+		}
+
+		m := &mock{
+			responses: []mockResponse{
+				{output: []byte(repoRoot + "\n")},
+				{output: []byte(testMonorepoDiff)},
+			},
+		}
+
+		expected := Diff{
+			changes: map[FileName][]Change{
+				"service-a/main.go": {{StartLine: 44, EndLine: 44}},
+			},
+			moduleRel: "service-a",
+		}
+
+		result, err := NewWithCmd(m.call, "service-a", "")
 
 		if err != nil || !reflect.DeepEqual(result, expected) {
 			t.Log("err", err)

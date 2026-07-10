@@ -3,7 +3,8 @@ package diff
 
 import (
 	"go/token"
-	"path/filepath"
+	"path"
+	"strings"
 
 	"github.com/bluekeyes/go-gitdiff/gitdiff"
 )
@@ -97,7 +98,10 @@ func (d Diff) IsChanged(pos token.Position) bool {
 		return true
 	}
 
-	key := FileName(filepath.Join(d.moduleRel, d.callingDir, pos.Filename))
+	// Diff keys always use "/" (git's own convention), regardless of OS, so the
+	// prefix is joined with path.Join rather than filepath.Join, and each part is
+	// normalised to "/" in case it was built with filepath.Rel/filepath.Join on Windows.
+	key := FileName(path.Join(toSlash(d.moduleRel), toSlash(d.callingDir), toSlash(pos.Filename)))
 	fileDiff := d.changes[key]
 
 	for _, change := range fileDiff {
@@ -107,4 +111,10 @@ func (d Diff) IsChanged(pos token.Position) bool {
 	}
 
 	return false
+}
+
+// toSlash normalises path separators to "/", regardless of the host OS,
+// since diff keys are always built from git's forward-slash paths.
+func toSlash(s string) string {
+	return strings.ReplaceAll(s, `\`, "/")
 }
