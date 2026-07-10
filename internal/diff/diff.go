@@ -14,8 +14,10 @@ type FileName string
 
 // Change represents a contiguous range of changed lines in a file.
 type Change struct {
+	// StartLine is the first line of the changed region (1-indexed).
 	StartLine int
-	EndLine   int
+	// EndLine is the last line of the changed region (1-indexed, inclusive).
+	EndLine int
 }
 
 // Diff maps file names to their list of changes and carries path
